@@ -1,0 +1,55 @@
+#!/bin/bash
+
+#RNAseq Data Processing Pipeline
+
+#This scipt performs quality control and mapping of sequencing reads. It intakes .gz file and trim 15 bases (based on fastQC) from 5' end and 5 bases from 3' end (read length of 100 bases). In the next step, it runs star mapping to the genome and generate read count files.
+
+#SBATCH -A b2014097
+#SBATCH -p core
+#SBATCH -n 16
+#SBATCH -t 100:00:00
+#SBATCH -J RNA-Seq_Pipeline
+#SBATCH -o /proj/b2014097/nobackup/Niyaz/logs/star-index.out
+#SBATCH -e /proj/b2014097/nobackup/Niyaz/logs/star-index.err
+
+module load bioinfo-tools
+module load star/2.5.3a
+module load TrimGalore/0.4.1
+module load FastQC/0.11.5
+module load cutadapt/1.13
+module load Fastx/0.0.14
+
+
+## FastX trimmer and FastQuality filter
+## It intakes .gz file and trim 15 bases from 5' end and 5 bases from 3' end (based on fastQC)
+## Then piped to do a quality filter
+
+echo "trimming"
+
+for x in *.gz; do
+
+        file_input="$x"
+        file_out="$x"'s'
+        gunzip -c  $file_input | fastx_trimmer -Q33 -f 15 -l 95 | fastq_quality_filter -Q 33 -q 30 -p 85 -z -o $file_out
+done;
+
+echo "done"
+
+
+
+## Index both genome and annotation file
+
+STAR --runMode genomeGenerate --runThreadN 24 --genomeDir /proj/b2014097/nobackup/Niyaz/STAR/STAR-Index --genomeFastaFiles /proj/b2014097/nobackup/Niyaz/STAR/GRCh38.p10.genome.fa --sjdbGTFfile /proj/b2014097/nobackup/Niyaz/STAR/gencode.v27.annotation.gtf --sjdbOverhang 99
+
+
+
+## Star mapping and counting reads
+
+for read1 in *R1_001_val_1.fq.gz; do read2=$(echo $read1| sed 's/R1_001_val_1.fq.gz/R2_001_val_2.fq.gz/');
+
+star --runThreadN 32 --runMode alignReads --readFilesCommand zcat --outFilterMultimapNmax 30 \
+--outFilterScoreMinOverLread 0.3 --outFilterMatchNminOverLread 0.3 --outSAMtype BAM SortedByCoordinate \
+--twopassMode Basic --outWigType bedGraph --outFileNamePrefix /proj/b2014097/nobackup/Niyaz/FastQ_files/STAR_Output/Mapped_$read1 --outWigStrand Unstranded \
+--outSAMstrandField intronMotif --genomeLoad NoSharedMemory --genomeDir /proj/b2014097/nobackup/Niyaz/STAR/Genome/STAR-Index/ --quantMode GeneCounts --sjdbGTFfile /proj/b2014097/nobackup/Niyaz/STAR/Annotation/gencode.v27.annotation.gtf --readFilesIn $read1 $read2
+
+done
